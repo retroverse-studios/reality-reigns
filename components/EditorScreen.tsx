@@ -1,0 +1,541 @@
+import React, { useState, useEffect } from 'react';
+import { Reality, CardData, StatName, Deck } from '../types';
+import { REALITIES, INITIAL_STATS } from '../constants';
+import { iconRegistry, BackIcon, SaveIcon, DeleteIcon, UploadIcon, ExportIcon, AddIcon, GenerateIcon, CloudUploadIcon, FormIcon, GraphIcon } from './icons';
+import { generateBranchingDeckFromPrompt } from '../services/geminiService';
+import { VisualEditor } from './VisualEditor';
+
+interface EditorScreenProps {
+    realities: Reality[];
+    editingReality: Reality | null;
+    onSetEditingReality: (reality: Reality | null) => void;
+    onSave: (reality: Reality) => void;
+    onDelete: (realityId: string) => void;
+    onUpdateAll: (realities: Reality[]) => void;
+    onClose: () => void;
+    requestConfirmation: (options: { message: string, onConfirm: () => void }) => void;
+    onSubmitToStore: (reality: Reality) => void;
+    addToast: (message: string, type?: 'success' | 'error') => void;
+}
+
+const createNewReality = (): Reality => ({
+    id: `reality-${Date.now()}`,
+    name: "New Reality",
+    description: "A brand new world of possibilities.",
+    font: 'font-exo',
+    systemInstruction: "You are a creative storyteller for the interactive fiction game 'Reality Reigns'.",
+    statNames: { Power: 'Stat A', Wealth: 'Stat B', People: 'Stat C', Knowledge: 'Stat D' },
+    statIconNames: { Power: 'PowerIconCyber', Wealth: 'WealthIconCyber', People: 'PeopleIconCyber', Knowledge: 'KnowledgeIconCyber' },
+    imageSet: [],
+    colors: { primary: 'text-cyber-pink', secondary: 'text-cyber-cyan', background: 'bg-gray-900', accent: 'border-cyber-pink' },
+    deck: { cards: [] },
+    soundConfig: {},
+});
+
+const EditorScreen: React.FC<EditorScreenProps> = ({
+    realities, editingReality, onSetEditingReality, onSave, onDelete, onUpdateAll, onClose, requestConfirmation, onSubmitToStore, addToast
+}) => {
+    const [formData, setFormData] = useState<Reality | null>(null);
+    const [storyDirectorPrompt, setStoryDirectorPrompt] = useState('');
+    const [isGeneratingDeck, setIsGeneratingDeck] = useState(false);
+    const [isDirty, setIsDirty] = useState(false);
+    const [editorView, setEditorView] = useState<'form' | 'visual'>('form');
+
+    useEffect(() => {
+        // Ensure formData always has a deck object
+        if (editingReality) {
+            const newFormData = JSON.parse(JSON.stringify(editingReality));
+            if (!newFormData.deck) {
+                newFormData.deck = { name: '', description: '', cards: [] };
+            }
+            if (!newFormData.soundConfig) {
+                newFormData.soundConfig = {};
+            }
+            setFormData(newFormData);
+        } else {
+            setFormData(null);
+        }
+        setStoryDirectorPrompt('');
+        setEditorView('form');
+    }, [editingReality]);
+    
+    useEffect(() => {
+        if (formData && editingReality) {
+            setIsDirty(JSON.stringify(formData) !== JSON.stringify(editingReality));
+        } else if (formData && !editingReality) {
+            setIsDirty(true);
+        } else {
+            setIsDirty(false);
+        }
+    }, [formData, editingReality]);
+
+
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+        const { name, value } = e.target;
+        if (!formData) return;
+    
+        const nameParts = name.split('.');
+        if (nameParts.length === 2) {
+            const field = nameParts[0] as keyof Reality;
+            const subfield = nameParts[1];
+            
+            const parentField = formData[field];
+            if (typeof parentField === 'object' && parentField !== null && !Array.isArray(parentField)) {
+                setFormData({
+                    ...formData,
+                    [field]: {
+                        ...(parentField as object),
+                        [subfield]: value,
+                    },
+                });
+            }
+        } else {
+            setFormData({ ...formData, [name]: value });
+        }
+    };
+    
+    const handleImageSetChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        if (!formData) return;
+        const urls = e.target.value.split('\n').map(url => url.trim()).filter(Boolean);
+        setFormData({...formData, imageSet: urls});
+    };
+
+    const handleSaveClick = () => {
+        if (formData) {
+            onSave(formData);
+            addToast("Changes saved successfully!", 'success');
+        }
+    };
+    
+    const handleCreateClick = () => {
+        const newReality = createNewReality();
+        onSave(newReality);
+        onSetEditingReality(newReality);
+    };
+    
+    const handleDeckChange = (newDeck: Deck) => {
+        if (formData) {
+            // Ensure deck has all properties
+            const completeDeck: Deck = {
+                name: newDeck.name || '',
+                description: newDeck.description || '',
+                cards: newDeck.cards || [],
+            };
+            setFormData({ ...formData, deck: completeDeck, deckUrl: undefined });
+        }
+    };
+
+    const handleDeckFieldChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        const { name, value } = e.target;
+        if (formData) {
+            handleDeckChange({
+                ...formData.deck!,
+                [name]: value,
+            });
+        }
+    };
+
+    const handleCardsChange = (newCards: Omit<CardData, 'id'>[]) => {
+        if (formData) {
+            handleDeckChange({
+                ...formData.deck!,
+                cards: newCards,
+            });
+        }
+    };
+    
+    const handleCardChange = (index: number, updatedCard: Omit<CardData, 'id'>) => {
+        if (formData?.deck?.cards) {
+            const newCards = [...formData.deck.cards];
+            newCards[index] = updatedCard;
+            handleCardsChange(newCards);
+        }
+    };
+
+    const handleAddCard = () => {
+        if (formData) {
+            const newCard: Omit<CardData, 'id'> = {
+                prompt: "New Scenario",
+                imageUrl: "",
+                leftChoice: { text: "Option A", effects: {Power:0, Wealth:0, People:0, Knowledge:0} },
+                rightChoice: { text: "Option B", effects: {Power:0, Wealth:0, People:0, Knowledge:0} },
+            };
+            const newCards = [...(formData.deck?.cards || []), newCard];
+            handleCardsChange(newCards);
+        }
+    };
+
+    const handleDeleteCard = (index: number) => {
+        if (formData?.deck?.cards) {
+            const newCards = formData.deck.cards.filter((_, i) => i !== index);
+            handleCardsChange(newCards);
+        }
+    };
+    
+    const handleExportDeck = () => {
+        if (!formData?.deck) {
+            addToast("No custom deck to export.", 'error');
+            return;
+        }
+        const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(formData.deck, null, 2))}`;
+        const link = document.createElement("a");
+        link.href = jsonString;
+        link.download = `deck-${formData.id}.json`;
+        link.click();
+        link.remove();
+    };
+
+    const handleImportDeck = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file || !formData) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const deck = JSON.parse(e.target?.result as string);
+                // Handle both old (array) and new (object) formats
+                if(Array.isArray(deck)) {
+                    handleDeckChange({ name: "Imported Deck", description: "", cards: deck });
+                } else if (typeof deck === 'object' && deck !== null && 'cards' in deck) {
+                    handleDeckChange(deck);
+                } else { throw new Error("Invalid format"); }
+                addToast("Deck imported successfully!", 'success');
+            } catch { addToast("Invalid deck file.", 'error'); }
+        };
+        reader.readAsText(file);
+        event.target.value = '';
+    };
+
+    const handleGenerateDeckClick = async () => {
+        if (!formData || !storyDirectorPrompt) {
+            addToast("Please enter a story prompt for the AI Director.", 'error');
+            return;
+        }
+        requestConfirmation({
+            message: "This will replace your current custom deck with a new, AI-generated one based on your prompt. This cannot be undone. Are you sure?",
+            onConfirm: async () => {
+                setIsGeneratingDeck(true);
+                try {
+                    const newDeck = await generateBranchingDeckFromPrompt(formData, storyDirectorPrompt);
+                    handleDeckChange(newDeck);
+                    setEditorView('visual'); // Switch to visual editor on success
+                    addToast("AI deck generated successfully!", 'success');
+                } catch (error) {
+                    console.error("Failed to generate AI deck:", error);
+                    addToast((error as Error).message, 'error');
+                } finally {
+                    setIsGeneratingDeck(false);
+                }
+            }
+        });
+    };
+
+    const handleGlobalFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const importedData = JSON.parse(e.target?.result as string);
+                if (Array.isArray(importedData) && importedData.length > 0) {
+                    onUpdateAll(importedData);
+                    onSetEditingReality(null);
+                    addToast(`${importedData.length} realities imported successfully!`, 'success');
+                } else {
+                    addToast('Import failed: Invalid file format.', 'error');
+                }
+            } catch (error) {
+                addToast("Could not import realities. The file is not valid JSON.", 'error');
+            }
+        };
+        reader.readAsText(file);
+        event.target.value = '';
+    };
+
+    const handleResetAll = () => {
+        requestConfirmation({
+            message: "Are you sure you want to reset all realities to their default settings? This cannot be undone.",
+            onConfirm: () => {
+                onUpdateAll(REALITIES);
+                onSetEditingReality(null);
+                addToast("All realities have been reset to default.", 'success');
+            }
+        });
+    }
+
+    const handleExportAll = () => {
+        const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(realities, null, 2))}`;
+        const link = document.createElement("a");
+        link.href = jsonString;
+        link.download = "realities.json";
+        link.click();
+        link.remove();
+    };
+
+    const handleAttemptClose = () => {
+        if (isDirty) {
+            requestConfirmation({
+                message: "You have unsaved changes. Are you sure you want to discard them and exit?",
+                onConfirm: onClose,
+            });
+        } else {
+            onClose();
+        }
+    };
+    
+    const handleAttemptSelectReality = (reality: Reality) => {
+        if (isDirty) {
+            requestConfirmation({
+                message: "You have unsaved changes. Are you sure you want to discard them and switch realities?",
+                onConfirm: () => onSetEditingReality(reality),
+            });
+        } else {
+            onSetEditingReality(reality);
+        }
+    };
+    
+    const handleRevertToAi = () => {
+        requestConfirmation({
+            message: "This will remove the custom deck and revert to using the AI for scenarios. Are you sure?",
+            onConfirm: () => handleDeckChange({name: '', description: '', cards:[]})
+        });
+    };
+
+    const handleSubmitClick = () => {
+        if (isDirty) {
+            addToast("Please save your changes before submitting to the store.", 'error');
+            return;
+        }
+        if (formData) {
+            onSubmitToStore(formData);
+        }
+    };
+
+
+    const CardEditor = ({ card, index }: { card: Omit<CardData, 'id'>, index: number }) => {
+        const onCardChange = (field: string, value: any) => handleCardChange(index, {...card, [field]: value});
+        const onChoiceChange = (choiceKey: 'leftChoice' | 'rightChoice', field: string, value: any) => {
+            const updatedChoice = { ...card[choiceKey], [field]: value };
+            if (field === 'nextCardIndex' && value === '') {
+                delete updatedChoice.nextCardIndex; // Use default sequential if empty
+            } else if (field === 'nextCardIndex') {
+                updatedChoice.nextCardIndex = parseInt(value, 10);
+            }
+            onCardChange(choiceKey, updatedChoice);
+        };
+        const onEffectChange = (choiceKey: 'leftChoice' | 'rightChoice', stat: StatName, value: string) => {
+            const newEffects = {
+                ...card[choiceKey].effects,
+                [stat]: Number(value) || 0,
+            };
+            onChoiceChange(choiceKey, 'effects', newEffects);
+        };
+        
+        return (
+            <div className="bg-slate-800/50 p-3 rounded-lg border border-gray-700 space-y-2">
+                <div className="flex justify-between items-start gap-2">
+                    <div className='flex-grow space-y-1'>
+                        <textarea value={card.prompt} onChange={e => onCardChange('prompt', e.target.value)} className="w-full bg-gray-900 p-2 rounded text-sm" rows={2} placeholder="Scenario Prompt"></textarea>
+                        <input type="text" value={card.imageUrl || ''} onChange={e => onCardChange('imageUrl', e.target.value)} className="w-full bg-gray-900 p-2 rounded text-sm" placeholder="Optional Image URL" />
+                    </div>
+                    <button onClick={() => handleDeleteCard(index)} className="p-2 text-red-500 hover:text-red-400 text-xs self-start" title="Delete Card"><DeleteIcon /></button>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                    {(['leftChoice', 'rightChoice'] as const).map(choiceKey => (
+                       <div key={choiceKey} className="space-y-1 bg-black/20 p-2 rounded">
+                            <input type="text" value={card[choiceKey].text} onChange={e => onChoiceChange(choiceKey, 'text', e.target.value)} className="w-full bg-gray-900 p-1 rounded font-bold" placeholder={`${choiceKey === 'leftChoice' ? 'Left' : 'Right'} Choice Text`} />
+                             <input type="text" value={card[choiceKey].soundUrl || ''} onChange={e => onChoiceChange(choiceKey, 'soundUrl', e.target.value)} className="w-full bg-gray-900 p-1 rounded" placeholder="Optional Sound URL" />
+                            <div className="grid grid-cols-2 gap-1">
+                                {Object.keys(INITIAL_STATS).map(stat => (
+                                    <div key={stat} className="flex items-center">
+                                        <label className="mr-1 w-10 text-gray-400 text-xs truncate" title={stat}>{formData?.statNames[stat as StatName]}</label>
+                                        <input type="number" value={card[choiceKey].effects[stat as StatName] || 0} onChange={e => onEffectChange(choiceKey, stat as StatName, e.target.value)} className="w-full bg-gray-800 p-1 rounded" />
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="flex items-center pt-1">
+                                <label className="mr-1 text-gray-400 text-xs" title="Next Card Index">Next Card #</label>
+                                <input type="number" value={card[choiceKey].nextCardIndex ?? ''} onChange={e => onChoiceChange(choiceKey, 'nextCardIndex', e.target.value)} className="w-full bg-gray-800 p-1 rounded" placeholder={(index + 1).toString()} min="0" />
+                            </div>
+                       </div>
+                    ))}
+                </div>
+            </div>
+        )
+    }
+
+    return (
+        <div className="flex h-screen w-screen animate-fade-in bg-gray-900 text-gray-200">
+            {/* Sidebar */}
+            <aside className="w-1/4 min-w-[300px] bg-gray-950/50 flex flex-col p-4 border-r border-gray-800">
+                <div className="flex items-center mb-4">
+                    <button onClick={handleAttemptClose} className="p-2 rounded-full hover:bg-white/10"><BackIcon /></button>
+                    <h1 className="text-2xl font-bold ml-2 font-orbitron">Creator Hub</h1>
+                </div>
+                <div className="flex-grow overflow-y-auto pr-2 space-y-1">
+                    {realities.map(r => (
+                        <div key={r.id} onClick={() => handleAttemptSelectReality(r)} className={`p-3 rounded-md cursor-pointer border-l-4 ${editingReality?.id === r.id ? 'bg-cyber-pink/20 border-cyber-pink' : 'border-transparent hover:bg-white/5'}`}>
+                            <p className="font-bold truncate">{r.name}</p>
+                            <p className="text-xs text-gray-400 truncate">{r.id}</p>
+                        </div>
+                    ))}
+                </div>
+                <div className="mt-auto space-y-2 pt-4 border-t border-gray-800">
+                   <button onClick={handleCreateClick} className="w-full flex items-center justify-center gap-2 py-2 px-4 font-bold rounded-md bg-cyber-pink/80 text-white hover:bg-cyber-pink">
+                       <AddIcon /> Create New Reality
+                   </button>
+                   <div className="grid grid-cols-3 gap-2 text-sm">
+                       <label htmlFor="import-all" className="text-center py-2 px-1 font-bold rounded-md bg-white/10 hover:bg-white/20 cursor-pointer">Import</label>
+                       <input type="file" id="import-all" accept=".json" className="hidden" onChange={handleGlobalFileChange} />
+                       <button onClick={handleExportAll} className="py-2 px-1 font-bold rounded-md bg-white/10 hover:bg-white/20">Export</button>
+                       <button onClick={handleResetAll} className="py-2 px-1 font-bold rounded-md bg-red-500/20 text-red-400 hover:bg-red-500/40">Reset</button>
+                   </div>
+                </div>
+            </aside>
+
+            {/* Main Content */}
+            <main className="flex-grow p-6 overflow-y-auto flex flex-col">
+                {!formData ? (
+                    <div className="flex items-center justify-center h-full">
+                        <p className="text-2xl text-gray-500">Select a reality to begin editing, or create a new one.</p>
+                    </div>
+                ) : (
+                <div className="max-w-7xl mx-auto space-y-4 flex-grow flex flex-col w-full">
+                    <div className="flex justify-between items-center">
+                        <input type="text" name="name" value={formData.name} onChange={handleInputChange} className="text-4xl font-bold bg-transparent border-b-2 border-transparent focus:border-cyber-pink outline-none" />
+                        <div className="flex items-center gap-2">
+                           <button onClick={() => onDelete(formData.id)} className="p-3 rounded-md text-red-400 border-2 border-red-400/50 bg-transparent hover:bg-red-400/10" title="Delete Reality"><DeleteIcon /></button>
+                           <button 
+                             onClick={handleSubmitClick}
+                             disabled={isDirty}
+                             className={`flex items-center gap-2 py-2 px-4 font-bold rounded-md transition-all duration-300 ${!isDirty ? 'bg-mystic-purple/80 text-white hover:bg-mystic-purple' : 'bg-gray-700 text-gray-400 cursor-not-allowed'}`}
+                             title={isDirty ? "Save changes before submitting" : "Submit to Community Store"}
+                           >
+                            <CloudUploadIcon /> Submit
+                           </button>
+                           <button 
+                             onClick={handleSaveClick}
+                             disabled={!isDirty}
+                             className={`flex items-center gap-2 py-2 px-4 font-bold rounded-md transition-all duration-300 ${isDirty ? 'bg-cyber-pink/80 text-white hover:bg-cyber-pink animate-pulse-fast' : 'bg-gray-700 text-gray-400'}`}
+                           >
+                            <SaveIcon /> {isDirty ? 'Save Changes' : 'Saved'}
+                           </button>
+                        </div>
+                    </div>
+                    
+                    {/* Main Reality Details */}
+                    <details className="bg-slate-800/50 p-4 rounded-lg" open>
+                        <summary className="text-xl font-bold cursor-pointer">Reality Configuration</summary>
+                        <div className='grid grid-cols-1 md:grid-cols-2 gap-4 mt-4'>
+                            <div>
+                                <label className='text-sm text-gray-400'>Description</label>
+                                <textarea name="description" value={formData.description} onChange={handleInputChange} className="w-full bg-gray-900 p-2 rounded" rows={3}></textarea>
+                            </div>
+                            <div>
+                                <label className='text-sm text-gray-400'>System Instruction (for AI)</label>
+                                <textarea name="systemInstruction" value={formData.systemInstruction} onChange={handleInputChange} className="w-full bg-gray-900 p-2 rounded" rows={3}></textarea>
+                            </div>
+                            <div>
+                                <label className='text-sm text-gray-400'>Image Set (one URL per line)</label>
+                                <textarea value={formData.imageSet?.join('\n') || ''} onChange={handleImageSetChange} className="w-full bg-gray-900 p-2 rounded" rows={3}></textarea>
+                            </div>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                                {Object.keys(formData.statNames).map(key => (
+                                    <div key={key}>
+                                        <label className='text-sm text-gray-400'>{key} Stat Name</label>
+                                        <input type="text" name={`statNames.${key}`} value={formData.statNames[key as StatName]} onChange={handleInputChange} className="w-full bg-gray-900 p-2 rounded" />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </details>
+                    
+                    {/* Sound Config */}
+                     <details className="bg-slate-800/50 p-4 rounded-lg">
+                        <summary className="text-xl font-bold cursor-pointer">Sound Configuration</summary>
+                         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-4 text-sm">
+                            {(['backgroundMusicUrl', 'gameStartUrl', 'gameWinUrl', 'gameLoseUrl', 'swipeLeftUrl', 'swipeRightUrl'] as const).map(key => (
+                                <div key={key}>
+                                    <label className='block text-gray-400 capitalize'>{key.replace('Url', '').replace(/([A-Z])/g, ' $1')}</label>
+                                    <input type="text" name={`soundConfig.${key}`} value={formData.soundConfig?.[key] || ''} onChange={handleInputChange} className="w-full bg-gray-900 p-2 rounded" placeholder="Optional Sound URL" />
+                                </div>
+                            ))}
+                        </div>
+                    </details>
+                    
+                    {/* Deck Editor */}
+                    <section className="bg-slate-800/50 p-4 rounded-lg flex-grow flex flex-col">
+                        <div className="flex justify-between items-center mb-3 border-b border-gray-700 pb-2">
+                            <h3 className="text-xl font-bold">Deck Editor</h3>
+                             <div className="flex items-center gap-2">
+                                <div className="flex items-center bg-gray-900/50 border border-gray-700 rounded-md p-1">
+                                    <button onClick={() => setEditorView('form')} className={`p-1 rounded-md ${editorView === 'form' ? 'bg-cyber-pink text-white' : 'text-gray-400 hover:bg-white/10'}`} title="Form View"><FormIcon /></button>
+                                    <button onClick={() => setEditorView('visual')} className={`p-1 rounded-md ${editorView === 'visual' ? 'bg-cyber-pink text-white' : 'text-gray-400 hover:bg-white/10'}`} title="Visual Power Editor"><GraphIcon /></button>
+                                </div>
+                                <label htmlFor={`deck-import-${formData.id}`} className="flex items-center gap-2 py-1 px-3 rounded-md text-sm bg-white/10 hover:bg-white/20 cursor-pointer">
+                                    <UploadIcon /> Import
+                                </label>
+                                <input type="file" id={`deck-import-${formData.id}`} accept=".json" className="hidden" onChange={handleImportDeck} disabled={isGeneratingDeck}/>
+                                <button onClick={handleExportDeck} disabled={isGeneratingDeck} className="flex items-center gap-2 py-1 px-3 rounded-md text-sm bg-white/10 hover:bg-white/20 disabled:opacity-50">
+                                    <ExportIcon /> Export
+                                </button>
+                                <button onClick={handleRevertToAi} disabled={isGeneratingDeck} className="flex items-center gap-2 py-1 px-3 rounded-md text-sm bg-red-500/20 text-red-400 hover:bg-red-500/40 disabled:opacity-50">
+                                    <DeleteIcon/> Revert to AI
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="space-y-2 mb-4">
+                            <input type="text" name="name" value={formData.deck?.name || ''} onChange={handleDeckFieldChange} placeholder="Deck Title" className="w-full bg-gray-900 p-2 rounded text-lg font-bold" />
+                            <textarea name="description" value={formData.deck?.description || ''} onChange={handleDeckFieldChange} placeholder="Deck Description..." className="w-full bg-gray-900 p-2 rounded text-sm" rows={2}></textarea>
+                        </div>
+
+
+                        {editorView === 'form' && (
+                            <div className='flex-grow flex flex-col'>
+                            <div className="bg-slate-900/70 p-4 rounded-lg border border-purple-500/30">
+                                <h4 className="text-lg font-bold text-purple-300 flex items-center gap-2"><GenerateIcon/> AI Story Director</h4>
+                                <p className="text-sm text-gray-400 mt-1 mb-2">Describe a high-level story. The AI will generate a full, complex deck. Best viewed in the Visual Editor.</p>
+                                <textarea
+                                    value={storyDirectorPrompt}
+                                    onChange={(e) => setStoryDirectorPrompt(e.target.value)}
+                                    className="w-full bg-gray-900 p-2 rounded text-sm"
+                                    rows={3}
+                                    placeholder="e.g., A detective story where the player must find a killer. One path involves trusting a shady informant, leading to a trap..."
+                                ></textarea>
+                                <button 
+                                    onClick={handleGenerateDeckClick} 
+                                    disabled={isGeneratingDeck || !storyDirectorPrompt}
+                                    className="w-full mt-2 flex items-center justify-center gap-2 py-2 px-4 font-bold rounded-md bg-purple-500/80 text-white hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed">
+                                    {isGeneratingDeck ? 'Generating Story...' : 'Generate & View Story Graph'}
+                                </button>
+                            </div>
+                            
+                            <div className="mt-4 flex-grow overflow-y-auto">
+                            {(!formData.deck?.cards || formData.deck.cards.length === 0) ? (
+                                <p className="text-center text-gray-400 py-4">This reality uses AI to generate scenarios. Use the Story Director, import a deck, or add a card to begin.</p>
+                            ) : (
+                                <div className="space-y-3 pr-2">
+                                    {formData.deck.cards.map((card, index) => <CardEditor key={index} card={card} index={index} />)}
+                                </div>
+                            )}
+                            </div>
+                            <button onClick={handleAddCard} className="w-full mt-4 flex items-center justify-center gap-2 py-2 px-4 font-bold rounded-md bg-white/10 hover:bg-white/20"><AddIcon /> Add Card</button>
+                            </div>
+                        )}
+                        
+                        {editorView === 'visual' && (
+                            <div className="mt-4 flex-grow bg-gray-950/50 rounded-lg border border-gray-700">
+                                <VisualEditor cards={formData.deck?.cards || []} onCardsChange={handleCardsChange} />
+                            </div>
+                        )}
+
+                    </section>
+                </div>
+                )}
+            </main>
+        </div>
+    );
+};
+
+export default EditorScreen;

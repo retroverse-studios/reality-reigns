@@ -1,0 +1,269 @@
+import React, { useState, useCallback, useEffect } from 'react';
+import { GameState, Reality, CardData, Deck, ToastMessage } from './types';
+import MainMenu from './components/MainMenu';
+import GameScreen from './components/GameScreen';
+import GameOverScreen from './components/GameOverScreen';
+import EditorScreen from './components/EditorScreen';
+import StoreScreen from './components/StoreScreen';
+import ConfirmationModal from './components/ConfirmationModal';
+import { REALITIES } from './constants';
+import { submitReality } from './services/apiService';
+import { VolumeOffIcon, VolumeOnIcon, CloseIcon } from './components/icons';
+
+const REALITIES_STORAGE_KEY = 'reality-reigns-realities';
+const MUTED_STORAGE_KEY = 'reality-reigns-muted';
+
+const App: React.FC = () => {
+  const [gameState, setGameState] = useState<GameState>(GameState.MainMenu);
+  const [selectedReality, setSelectedReality] = useState<Reality | null>(null);
+  const [editingReality, setEditingReality] = useState<Reality | null>(null);
+  const [gameOverData, setGameOverData] = useState<{reason: string, deck: CardData[]}>({reason: '', deck: []});
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [confirmation, setConfirmation] = useState<{ message: string; onConfirm: () => void; } | null>(null);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const addToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
+      const id = Date.now();
+      setToasts(prev => [...prev, { id, message, type }]);
+      setTimeout(() => {
+          setToasts(prev => prev.filter(t => t.id !== id));
+      }, 5000);
+  }, []);
+
+  const [isMuted, setIsMuted] = useState<boolean>(() => {
+    try {
+        return window.localStorage.getItem(MUTED_STORAGE_KEY) === 'true';
+    } catch {
+        return false;
+    }
+  });
+
+  useEffect(() => {
+    try {
+        window.localStorage.setItem(MUTED_STORAGE_KEY, JSON.stringify(isMuted));
+    } catch (error) {
+        console.error("Failed to save mute state to localStorage", error);
+    }
+  }, [isMuted]);
+
+  const requestConfirmation = useCallback((options: { message: string; onConfirm: () => void; }) => {
+    setConfirmation(options);
+  }, []);
+
+  const handleConfirmation = () => {
+    if (confirmation) {
+      confirmation.onConfirm();
+      setConfirmation(null);
+    }
+  };
+
+  const handleCancelConfirmation = () => {
+    setConfirmation(null);
+  };
+
+  const [realities, setRealities] = useState<Reality[]>(() => {
+    try {
+      const storedRealities = window.localStorage.getItem(REALITIES_STORAGE_KEY);
+      return storedRealities ? JSON.parse(storedRealities) : REALITIES;
+    } catch (error) {
+      console.error("Failed to load realities from localStorage", error);
+      return REALITIES;
+    }
+  });
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(REALITIES_STORAGE_KEY, JSON.stringify(realities));
+    } catch (error) {
+      console.error("Failed to save realities to localStorage", error);
+    }
+  }, [realities]);
+
+  const handleStartGame = useCallback((reality: Reality) => {
+    setSelectedReality(reality);
+    setGameState(GameState.Playing);
+  }, []);
+
+  const handleGameOver = useCallback((reason: string, finalDeck: CardData[]) => {
+    setGameOverData({ reason, deck: finalDeck });
+    setGameState(GameState.GameOver);
+  }, []);
+
+  const handleExitToMenu = useCallback(() => {
+    setSelectedReality(null);
+    setEditingReality(null);
+    setGameOverData({reason: '', deck: []});
+    setGameState(GameState.MainMenu);
+  }, []);
+  
+  const handleGoToEditor = useCallback((reality: Reality | null) => {
+    setEditingReality(reality);
+    setGameState(GameState.Editor);
+  }, []);
+  
+  const handleGoToStore = useCallback(() => {
+    setGameState(GameState.Store);
+  }, []);
+
+  const handleSaveReality = useCallback((realityToSave: Reality) => {
+    setRealities(prev => {
+        const exists = prev.some(r => r.id === realityToSave.id);
+        if (exists) {
+            return prev.map(r => r.id === realityToSave.id ? realityToSave : r);
+        }
+        return [...prev, realityToSave];
+    });
+    setEditingReality(realityToSave); // Keep the saved reality in view
+  }, []);
+
+  const handleDeleteReality = useCallback((realityId: string) => {
+    if (realities.length <= 1) {
+      addToast("You cannot delete the last reality!", 'error');
+      return;
+    }
+    requestConfirmation({
+      message: "Are you sure you want to permanently delete this reality? This cannot be undone.",
+      onConfirm: () => {
+        setRealities(prev => prev.filter(r => r.id !== realityId));
+        setEditingReality(null);
+        addToast("Reality deleted.", 'success');
+      }
+    });
+  }, [realities.length, requestConfirmation, addToast]);
+
+  const handleUpdateAllRealities = useCallback((newRealities: Reality[]) => {
+      setRealities(newRealities);
+  }, []);
+
+  const handleInstallClick = useCallback(async () => {
+    if (!installPrompt) return;
+    const result = await installPrompt.prompt();
+    console.log(`Install prompt was: ${result.outcome}`);
+    setInstallPrompt(null);
+  }, [installPrompt]);
+  
+  const handleAddRealityFromStore = (reality: Reality) => {
+    const realityExists = realities.some(r => r.id === reality.id);
+    if (realityExists) {
+        requestConfirmation({
+            message: `A reality with the ID "${reality.id}" already exists. Do you want to overwrite it?`,
+            onConfirm: () => {
+                setRealities(prev => prev.map(r => r.id === reality.id ? reality : r));
+                addToast(`Reality "${reality.name}" has been updated!`);
+            }
+        });
+    } else {
+        setRealities(prev => [...prev, reality]);
+        addToast(`Reality "${reality.name}" has been added to your game!`);
+    }
+  };
+
+  const handleImportDeckToReality = (deck: Deck, realityId: string) => {
+    setRealities(prev => prev.map(r => {
+        if (r.id === realityId) {
+            return { ...r, deck: deck };
+        }
+        return r;
+    }));
+    addToast(`Story "${deck.name}" successfully added to reality "${realities.find(r=>r.id === realityId)?.name}"!`);
+  };
+  
+  const handleSubmitToStore = async (reality: Reality) => {
+    requestConfirmation({
+        message: "This will submit your reality to the public community store for review. Are you sure it's ready?",
+        onConfirm: async () => {
+            try {
+                const response = await submitReality(reality);
+                addToast(response.message, 'success');
+            } catch (error) {
+                addToast((error as Error).message, 'error');
+            }
+        }
+    });
+  };
+
+  const renderContent = () => {
+    switch (gameState) {
+      case GameState.Playing:
+        if (selectedReality) {
+          return <GameScreen reality={selectedReality} onGameOver={handleGameOver} onExit={handleExitToMenu} requestConfirmation={requestConfirmation} isMuted={isMuted} />;
+        }
+        return <MainMenu onStartGame={handleStartGame} onGoToEditor={handleGoToEditor} onGoToStore={handleGoToStore} realities={realities} installPrompt={installPrompt} onInstallClick={handleInstallClick} />;
+      
+      case GameState.GameOver:
+        return <GameOverScreen reason={gameOverData.reason} onRestart={handleExitToMenu} reality={selectedReality!} deck={gameOverData.deck} addToast={addToast} />;
+      
+      case GameState.Editor:
+        return <EditorScreen 
+                  realities={realities}
+                  editingReality={editingReality}
+                  onSetEditingReality={setEditingReality}
+                  onSave={handleSaveReality}
+                  onDelete={handleDeleteReality}
+                  onUpdateAll={handleUpdateAllRealities}
+                  onClose={handleExitToMenu}
+                  requestConfirmation={requestConfirmation}
+                  onSubmitToStore={handleSubmitToStore}
+                  addToast={addToast}
+               />;
+      
+      case GameState.Store:
+        return <StoreScreen onExit={handleExitToMenu} onAddReality={handleAddRealityFromStore} onImportDeckToReality={handleImportDeckToReality} localRealities={realities} />;
+
+      case GameState.MainMenu:
+      default:
+        return <MainMenu onStartGame={handleStartGame} onGoToEditor={handleGoToEditor} onGoToStore={handleGoToStore} realities={realities} installPrompt={installPrompt} onInstallClick={handleInstallClick} />;
+    }
+  };
+
+  const currentRealityForTheme = gameState === GameState.Playing ? selectedReality : (gameState === GameState.Editor ? editingReality : null);
+  const backgroundClass = currentRealityForTheme?.colors.background || 'bg-gray-900';
+  const fontClass = currentRealityForTheme?.font || 'font-exo';
+
+  return (
+    <main className={`w-screen h-screen overflow-hidden ${backgroundClass} ${fontClass} text-white transition-all duration-500`}>
+      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm"></div>
+      <button 
+        onClick={() => setIsMuted(prev => !prev)}
+        className="absolute bottom-4 left-4 z-[101] p-2 rounded-full bg-black/30 text-gray-300 hover:text-white hover:bg-white/20 transition-colors duration-300"
+        aria-label={isMuted ? "Unmute" : "Mute"}
+        title={isMuted ? "Unmute" : "Mute"}
+      >
+        {isMuted ? <VolumeOffIcon /> : <VolumeOnIcon />}
+      </button>
+      
+      <div className="absolute top-4 right-4 z-[100] w-full max-w-sm space-y-2">
+            {toasts.map(toast => (
+                <div key={toast.id} className={`rounded-lg shadow-lg p-3 animate-fade-in flex items-start space-x-4 ${toast.type === 'success' ? 'bg-green-600/95 border border-green-400' : 'bg-red-600/95 border border-red-400'}`}>
+                    <p className="flex-grow text-sm font-semibold">{toast.message}</p>
+                    <button onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))} className="flex-shrink-0">
+                      <CloseIcon />
+                    </button>
+                </div>
+            ))}
+      </div>
+
+      <div className="relative z-10 h-full">
+        {renderContent()}
+        {confirmation && (
+          <ConfirmationModal
+            message={confirmation.message}
+            onConfirm={handleConfirmation}
+            onCancel={handleCancelConfirmation}
+          />
+        )}
+      </div>
+    </main>
+  );
+};
+
+export default App;

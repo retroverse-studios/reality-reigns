@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reality Reigns</title>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#ff52e1">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Exo+2:ital,wght@0,100..900;1,100..900&family=MedievalSharp&family=Orbitron:wght@400..900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://esm.sh/reactflow@^11.11.4/dist/style.css">
+    <style>
+      body {
+        overscroll-behavior: none;
+      }
+      .font-orbitron { font-family: 'Orbitron', sans-serif; }
+      .font-medieval { font-family: 'MedievalSharp', cursive; }
+      .font-exo { font-family: 'Exo 2', sans-serif; }
+      .text-shadow { text-shadow: 0 0 10px rgba(255, 255, 255, 0.5), 0 0 20px rgba(255, 82, 225, 0.5); }
+      .animate-pulse-fast { animation: pulse-fast 1s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+      @keyframes pulse-fast {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: .8; transform: scale(1.1); }
+      }
+      .animate-fade-in { animation: fade-in 0.75s ease-out forwards; }
+      @keyframes fade-in {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .react-flow__handle {
+        background: #ff52e1 !important;
+        border: 2px solid white !important;
+      }
+      .react-flow__edge-path {
+          stroke: #ff52e1 !important;
+          stroke-width: 2 !important;
+      }
+    </style>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              'cyber-pink': '#ff52e1',
+              'cyber-cyan': '#00f2ff',
+              'mystic-purple': '#a45cff',
+              'mystic-gold': '#ffc857',
+              'space-blue': '#4d9eff',
+              'space-silver': '#c0c0c0',
+            },
+             animation: {
+              'fade-in': 'fade-in 0.75s ease-out forwards',
+              'pulse-fast': 'pulse-fast 1s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+            },
+            keyframes: {
+              'fade-in': {
+                'from': { opacity: 0, transform: 'translateY(-10px)' },
+                'to': { opacity: 1, transform: 'translateY(0)' },
+              },
+              'pulse-fast': {
+                '0%, 100%': { opacity: '1', transform: 'scale(1)' },
+                '50%': { opacity: '.8', transform: 'scale(1.1)' },
+              }
+            }
+          }
+        }
+      }
+    </script>
+<script type="importmap">
+{
+  "imports": {
+    "react/": "https://esm.sh/react@^19.1.1/",
+    "react": "https://esm.sh/react@^19.1.1",
+    "react-dom/": "https://esm.sh/react-dom@^19.1.1/",
+    "@google/genai": "https://esm.sh/@google/genai@^1.12.0",
+    "reactflow": "https://esm.sh/reactflow@^11.11.4"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body>
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+          window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw.js')
+              .then(registration => console.log('Service Worker registered:', registration.scope))
+              .catch(error => console.log('Service Worker registration failed:', error));
+          });
+        }
+    </script>
+</body>
+</html>

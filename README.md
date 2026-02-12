@@ -1,5 +1,9 @@
 # Reality Reigns
 
+<!-- BADGES:START -->
+[![ai](https://img.shields.io/badge/-ai-ff6f00?style=flat-square)](https://github.com/topics/ai) [![card-game](https://img.shields.io/badge/-card-game-blue?style=flat-square)](https://github.com/topics/card-game) [![game](https://img.shields.io/badge/-game-blue?style=flat-square)](https://github.com/topics/game) [![gemini-api](https://img.shields.io/badge/-gemini-api-blue?style=flat-square)](https://github.com/topics/gemini-api) [![pwa](https://img.shields.io/badge/-pwa-blue?style=flat-square)](https://github.com/topics/pwa) [![strategy-game](https://img.shields.io/badge/-strategy-game-blue?style=flat-square)](https://github.com/topics/strategy-game) [![survival](https://img.shields.io/badge/-survival-blue?style=flat-square)](https://github.com/topics/survival) [![typescript](https://img.shields.io/badge/-typescript-3178c6?style=flat-square)](https://github.com/topics/typescript) [![web-app](https://img.shields.io/badge/-web-app-blue?style=flat-square)](https://github.com/topics/web-app) [![swipe-mechanics](https://img.shields.io/badge/-swipe-mechanics-blue?style=flat-square)](https://github.com/topics/swipe-mechanics)
+<!-- BADGES:END -->
+
 A survival-strategy card game where you swipe to make decisions across different realities. Inspired by the Reigns game series, Reality Reigns challenges players to maintain balance across four critical stats while navigating through AI-generated scenarios.
 
 ## Features
